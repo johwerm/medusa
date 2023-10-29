@@ -20,8 +20,7 @@
     "watch": "cross-env tsc --watch",
     "test": "cross-env jest",
     "seed": "cross-env medusa seed -f ./data/seed.json",
-    "start": "cross-env npm run build && medusa start",
-    "start:custom": "cross-env npm run build && node --preserve-symlinks --trace-warnings index.js",
+    "start": "cross-env npm run build && medusa migrations run && medusa start -p 8080",
     "dev": "cross-env npm run build:server && medusa develop"
   },
   "dependencies": {
@@ -88,5 +87,8 @@
     "coverageDirectory": "./coverage",
     "testEnvironment": "node"
   },
-  "packageManager": "yarn@3.6.4"
+  "packageManager": "yarn@3.6.4",
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }
