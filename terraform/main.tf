@@ -95,6 +95,10 @@ variable "public-subnets" {
 #############################
 #############################
 
+data "aws_iam_user" "medusa" {
+  user_name = "medusa"
+}
+
 data "aws_availability_zones" "medusa" {
   state = "available"
 }
@@ -119,7 +123,8 @@ resource "aws_internet_gateway" "medusa" {
 resource "aws_subnet" "medusa_public_subnet" {
   count             = var.subnet_count.public
   vpc_id            = aws_vpc.medusa.id
-  cidr_block        = var.public_subnet_cidr_blocks[count.index]
+  cidr_block        = cidrsubnet(aws_vpc.medusa.cidr_block, 8, count.index)
+  map_public_ip_on_launch = true
   availability_zone = data.aws_availability_zones.medusa.names[count.index]
   tags = {
     Name = "medusa_public_subnet_${count.index}"
@@ -130,7 +135,7 @@ resource "aws_subnet" "medusa_public_subnet" {
 resource "aws_subnet" "medusa_private_subnet" {
   count             = var.subnet_count.private
   vpc_id            = aws_vpc.medusa.id
-  cidr_block        = var.private_subnet_cidr_blocks[count.index]
+  cidr_block        = cidrsubnet(aws_vpc.medusa.cidr_block, 8, count.index + 100)
   availability_zone = data.aws_availability_zones.medusa.names[count.index]
   tags = {
     Name = "medusa_private_subnet_${count.index}"
@@ -153,7 +158,7 @@ resource "aws_route_table" "medusa_public_rt" {
 resource "aws_route_table_association" "public" {
   count          = var.subnet_count.public
   route_table_id = aws_route_table.medusa_public_rt.id
-  subnet_id      = 	aws_subnet.medusa_public_subnet[count.index].id
+  subnet_id      = aws_subnet.medusa_public_subnet[count.index].id
 }
 
 resource "aws_route_table" "medusa_private_rt" {
@@ -167,25 +172,43 @@ resource "aws_route_table_association" "private" {
 }
 
 resource "aws_security_group" "medusa_web_sg" {
-  name        = "medusa_web_sg"
+  name        = "medusa-web-sg"
   description = "Security group for medusa web servers"
   vpc_id      = aws_vpc.medusa.id
 
   ingress {
-    description = "Allow all traffic through HTTP"
-    from_port   = "80"
-    to_port     = "8080"
-    protocol    = "tcp"
+    from_port   = 0
+    to_port     = 0
+    protocol    = -1
+    self        = "false"
     cidr_blocks = ["0.0.0.0/0"]
+    description = "any"
   }
 
-  ingress {
-    description = "Allow SSH from my computer"
-    from_port   = "22"
-    to_port     = "22"
-    protocol    = "tcp"
-    cidr_blocks = ["${var.my_ip}/32"]
-  }
+  # ingress {
+  #   description = "Allow all traffic through HTTP"
+  #   from_port   = "80"
+  #   to_port     = "80"
+  #   protocol    = "tcp"
+  #   cidr_blocks = ["0.0.0.0/0"]
+  # }
+
+  # ingress {
+  #   description = "Allow all traffic through HTTP"
+  #   from_port   = "8080"
+  #   to_port     = "8080"
+  #   protocol    = "tcp"
+  #   cidr_blocks = ["0.0.0.0/0"]
+  # }
+
+  # ingress {
+  #   description = "Allow SSH from my computer"
+  #   from_port   = "22"
+  #   to_port     = "22"
+  #   protocol    = "tcp"
+  #   cidr_blocks = ["0.0.0.0/0"]
+  #   #cidr_blocks = ["${var.my_ip}/32"]
+  # }
 
   egress {
     description = "Allow all outbound traffic"
@@ -196,12 +219,12 @@ resource "aws_security_group" "medusa_web_sg" {
   }
 
   tags = {
-    Name = "medusa_web_sg"
+    Name = "medusa-web-sg"
   }
 }
 
 resource "aws_security_group" "medusa_db_sg" {
-  name        = "medusa_db_sg"
+  name        = "medusa-db-sg"
   description = "Security group for medusa databases"
   vpc_id      = aws_vpc.medusa.id
 
@@ -223,7 +246,7 @@ resource "aws_security_group" "medusa_db_sg" {
   }
 
   tags = {
-    Name = "medusa_db_sg"
+    Name = "medusa-db-sg"
   }
 }
 
@@ -233,90 +256,126 @@ resource "aws_db_subnet_group" "medusa_db_subnet_group" {
   subnet_ids  = [for subnet in aws_subnet.medusa_private_subnet : subnet.id]
 }
 
-
-# // Create an EC2 instance named "tutorial_web"
-# resource "aws_instance" "tutorial_web" {
-#   // count is the number of instance we want
-#   // since the variable settings.web_app.cont is set to 1, we will only get 1 EC2
-#   count                  = var.settings.web_app.count
-  
-#   // Here we need to select the ami for the EC2. We are going to use the
-#   // ami data object we created called ubuntu, which is grabbing the latest
-#   // Ubuntu 20.04 ami
-#   ami                    = data.aws_ami.ubuntu.id
-  
-#   // This is the instance type of the EC2 instance. The variable
-#   // settings.web_app.instance_type is set to "t2.micro"
-#   instance_type          = var.settings.web_app.instance_type
-  
-#   // The subnet ID for the EC2 instance. Since "tutorial_public_subnet" is a list
-#   // of public subnets, we want to grab the element based on the count variable.
-#   // Since count is 1, we will be grabbing the first subnet in  	
-#   // "tutorial_public_subnet" and putting the EC2 instance in there
-#   subnet_id              = aws_subnet.tutorial_public_subnet[count.index].id
-  
-#   // The key pair to connect to the EC2 instance. We are using the "tutorial_kp" key 
-#   // pair that we created
-#   key_name               = aws_key_pair.tutorial_kp.key_name
-  
-#   // The security groups of the EC2 instance. This takes a list, however we only
-#   // have 1 security group for the EC2 instances.
-#   vpc_security_group_ids = [aws_security_group.tutorial_web_sg.id]
-
-#   // We are tagging the EC2 instance with the name "tutorial_db_" followed by
-#   // the count index
-#   tags = {
-#     Name = "tutorial_web_${count.index}"
-#   }
-# }
-
-# // Create an Elastic IP named "tutorial_web_eip" for each
-# // EC2 instance
-# resource "aws_eip" "tutorial_web_eip" {
-# 	// count is the number of Elastic IPs to create. It is
-# 	// being set to the variable settings.web_app.count which
-# 	// refers to the number of EC2 instances. We want an
-# 	// Elastic IP for every EC2 instance
-#   count    = var.settings.web_app.count
-
-# 	// The EC2 instance. Since tutorial_web is a list of 
-# 	// EC2 instances, we need to grab the instance by the 
-# 	// count index. Since the count is set to 1, it is
-# 	// going to grab the first and only EC2 instance
-#   instance = aws_instance.tutorial_web[count.index].id
-
-# 	// We want the Elastic IP to be in the VPC
-#   vpc      = true
-
-# 	// Here we are tagging the Elastic IP with the name
-# 	// "tutorial_web_eip_" followed by the count index
-#   tags = {
-#     Name = "tutorial_web_eip_${count.index}"
-#   }
-# }
-
-resource "aws_db_instance" "medusa" {
-  allocated_storage      = 10
-  db_name                = local.conf.postgresql.db_name
-  engine                 = "postgres"
-  engine_version         = "15.3"
-  instance_class         = "db.t3.micro"
-  username               = local.conf.postgresql.user
-  password               = local.conf.postgresql.password
-  skip_final_snapshot    = true
-  db_subnet_group_name   = aws_db_subnet_group.medusa_db_subnet_group.id
-  vpc_security_group_ids = [aws_security_group.medusa_db_sg.id]
+resource "aws_key_pair" "medusa_ec2" {
+  key_name   = "medusa-ec2"
+  public_key = local.conf.ec2.public_key
 }
 
-resource "aws_elastic_beanstalk_application" "medusa" {
-  name        = "medusa"
-  description = "medusa"
+resource "aws_launch_template" "medusa_ecs" {
+  name_prefix   = "ecs-template"
+  image_id      = "ami-062c116e449466e7f"
+  instance_type = "t3.micro"
 
-  appversion_lifecycle {
-    service_role          = aws_iam_role.beanstalk_service.arn
-    max_count             = 128
-    delete_source_from_s3 = true
+  key_name               = aws_key_pair.medusa_ec2.key_name
+  vpc_security_group_ids = [aws_security_group.medusa_web_sg.id]
+  iam_instance_profile {
+    name = "ecsInstanceRole"
   }
+
+  block_device_mappings {
+    device_name = "/dev/xvda"
+    ebs {
+      volume_size = 30
+      volume_type = "gp2"
+    }
+  }
+
+  tag_specifications {
+    resource_type = "instance"
+    tags = {
+      Name = "ecs-instance"
+    }
+  }
+
+  user_data = filebase64("${path.module}/ecs.sh")
+}
+
+resource "aws_autoscaling_group" "medusa_ecs" {
+  vpc_zone_identifier = [for subnet in aws_subnet.medusa_public_subnet : subnet.id]
+  desired_capacity    = 2
+  max_size            = 3
+  min_size            = 1
+
+  launch_template {
+    id      = aws_launch_template.medusa_ecs.id
+    version = "$Latest"
+  }
+
+  tag {
+    key                 = "AmazonECSManaged"
+    value               = true
+    propagate_at_launch = true
+  }
+}
+
+resource "aws_lb" "medusa_ecs" {
+  name               = "ecs-alb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.medusa_web_sg.id]
+  subnets            = [for subnet in aws_subnet.medusa_public_subnet : subnet.id]
+
+  tags = {
+    Name = "ecs-alb"
+  }
+}
+
+resource "aws_lb_target_group" "medusa_ecs" {
+  name        = "ecs-target-group"
+  port        = 80
+  protocol    = "HTTP"
+  target_type = "ip"
+  vpc_id      = aws_vpc.medusa.id
+
+  health_check {
+    path = "/"
+  }
+}
+
+resource "aws_lb_listener" "medusa_ecs" {
+  load_balancer_arn = aws_lb.medusa_ecs.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.medusa_ecs.arn
+  }
+}
+
+resource "aws_ecs_cluster" "medusa_ecs" {
+  name = "medusa-ecs-cluster"
+}
+
+resource "aws_ecs_capacity_provider" "medusa_ecs" {
+  name = "medusa-ecs-capacity-provider"
+
+  auto_scaling_group_provider {
+    auto_scaling_group_arn = aws_autoscaling_group.medusa_ecs.arn
+
+    managed_scaling {
+      maximum_scaling_step_size = 1000
+      minimum_scaling_step_size = 1
+      status                    = "ENABLED"
+      target_capacity           = 3
+    }
+  }
+}
+
+resource "aws_ecs_cluster_capacity_providers" "medusa_ecs" {
+  cluster_name = aws_ecs_cluster.medusa_ecs.name
+
+  capacity_providers = [aws_ecs_capacity_provider.medusa_ecs.name]
+
+  default_capacity_provider_strategy {
+    base              = 1
+    weight            = 100
+    capacity_provider = aws_ecs_capacity_provider.medusa_ecs.name
+  }
+}
+
+data "aws_iam_role" "ecs_task_execution" {
+  name = "ecsTaskExecutionRole"
 }
 
 resource "random_password" "medusa_server_jwt_secret" {
@@ -338,260 +397,77 @@ locals {
   }
 }
 
-resource "aws_elastic_beanstalk_environment" "medusa" {
-  name                = "medusa"
-  application         = aws_elastic_beanstalk_application.medusa.name
-  solution_stack_name = "64bit Amazon Linux 2023 v6.0.2 running Node.js 18"
-
-  # Application
-  setting {
-    namespace = "aws:ec2:vpc"
-    name      = "VPCId"
-    value     = aws_vpc.medusa.id
-  }
-  setting {
-    namespace = "aws:autoscaling:launchconfiguration"
-    name      = "IamInstanceProfile"
-    value     =  "aws-elasticbeanstalk-ec2-role"
-  }
-  setting {
-    namespace = "aws:ec2:vpc"
-    name      = "AssociatePublicIpAddress"
-    value     =  "True"
-  }
-  setting {
-    namespace = "aws:ec2:vpc"
-    name      = "Subnets"
-    value     = join(",", [for subnet in aws_subnet.medusa_private_subnet : subnet.id])
-  }
-  setting {
-    namespace = "aws:elasticbeanstalk:environment:process:default"
-    name      = "MatcherHTTPCode"
-    value     = "200"
-  }
-  setting {
-    namespace = "aws:elasticbeanstalk:environment"
-    name      = "LoadBalancerType"
-    value     = "application"
-  }
-  setting {
-    namespace = "aws:autoscaling:launchconfiguration"
-    name      = "InstanceType"
-    value     = "t2.micro"
-  }
-  setting {
-    namespace = "aws:autoscaling:launchconfiguration"
-    name      = "SecurityGroups"
-    value     = join(",", sort([aws_security_group.medusa_web_sg.id]))
-    resource  = ""
-  }
-  setting {
-    namespace = "aws:ec2:vpc"
-    name      = "ELBScheme"
-    value     = "internet facing"
-  }
-  setting {
-    namespace = "aws:autoscaling:asg"
-    name      = "MinSize"
-    value     = 1
-  }
-  setting {
-    namespace = "aws:autoscaling:asg"
-    name      = "MaxSize"
-    value     = 2
-  }
-  setting {
-    namespace = "aws:elasticbeanstalk:healthreporting:system"
-    name      = "SystemType"
-    value     = "enhanced"
-  }
-
-  # Environment Variables
-  dynamic "setting" {
-    for_each = local.environment_vars
-    content {
-      namespace = "aws:elasticbeanstalk:application:environment"
-      name      = setting.key
-      value     = setting.value
-    }
-  }
-
-  # Database
-  # setting {
-  #   namespace = "aws:rds:dbinstance"
-  #   name      = "DBAllocatedStorage"
-  #   value     = "2"
-  # }
-  # setting {
-  #   namespace = "aws:rds:dbinstance"
-  #   name      = "DBDeletionPolicy"
-  #   value     = "Delete"
-  # }
-  # setting {
-  #   namespace = "aws:rds:dbinstance"
-  #   name      = "HasCoupledDatabase"
-  #   value     = "true"
-  # }
-  # setting {
-  #   namespace = "aws:rds:dbinstance"
-  #   name      = "DBEngine"
-  #   value     = "postgres"
-  # }
-  # setting {
-  #   namespace = "aws:rds:dbinstance"
-  #   name      = "DBEngineVersion"
-  #   value     = "15.3"
-  # }
-  # setting {
-  #   namespace = "aws:rds:dbinstance"
-  #   name      = "DBInstanceClass"
-  #   value     = "db.t3.micro"
-  # }
-  # setting {
-  #   namespace = "aws:rds:dbinstance"
-  #   name      = "DBName"
-  #   value     = local.conf.postgresql.db_name
-  # }
-  # setting {
-  #   namespace = "aws:rds:dbinstance"
-  #   name      = "DBPassword"
-  #   value     = local.conf.postgresql.password
-  # }
-  # setting {
-  #   namespace = "aws:rds:dbinstance"
-  #   name      = "DBUser"
-  #   value     = local.conf.postgresql.user
-  # }
+resource "aws_ecs_task_definition" "medusa_ecs_backend" {
+ family             = "medusa-ecs-backend"
+ network_mode       = "awsvpc"
+ execution_role_arn = data.aws_iam_role.ecs_task_execution.arn
+ cpu                = 256
+ runtime_platform {
+   operating_system_family = "LINUX"
+   cpu_architecture        = "X86_64"
+ }
+ container_definitions = jsonencode([
+   {
+     name      = "dockergs"
+     image     = "public.ecr.aws/f9n5f1l7/dgs:latest"
+     cpu       = 256
+     memory    = 512
+     essential = true
+     portMappings = [
+       {
+         containerPort = 80
+         hostPort      = 80
+         protocol      = "tcp"
+       }
+     ]
+   }
+ ])
 }
 
+resource "aws_ecs_service" "medusa_ecs_backend" {
+  name            = "medusa-ecs-backend"
+  cluster         = aws_ecs_cluster.medusa_ecs.id
+  task_definition = aws_ecs_task_definition.medusa_ecs_backend.arn
+  desired_count   = 2
 
-# Pipeline
-resource "aws_kms_key" "medusa-pipeline" {
-  description             = "Medusa Pipeline"
-  deletion_window_in_days = 10
-}
-
-resource "aws_codestarconnections_connection" "medusa" {
-  name          = "github-medusa"
-  provider_type = "GitHub"
-}
-
-resource "aws_codepipeline" "medusa" {
-  name     = "medusa-pipeline"
-  role_arn = aws_iam_role.codepipeline_role.arn
-
-  artifact_store {
-    location = aws_s3_bucket.medusa_pipeline.bucket
-    type     = "S3"
-
-    encryption_key {
-      id   = data.aws_kms_key.medusa-pipeline.arn
-      type = "KMS"
-    }
+  network_configuration {
+    subnets         = [for subnet in aws_subnet.medusa_public_subnet : subnet.id]
+    security_groups = [aws_security_group.medusa_web_sg.id]
   }
 
-  stage {
-    name = "Source"
-    action {
-      name             = "Source"
-      category         = "Source"
-      owner            = "AWS"
-      provider         = "CodeStarSourceConnection"
-      version          = "1"
-      output_artifacts = ["source_output"]
-      configuration = {
-        ConnectionArn    = aws_codestarconnections_connection.medusa.arn
-        FullRepositoryId = "johwerm/medusa"
-        BranchName       = "main"
-      }
-    }
+  force_new_deployment = true
+  placement_constraints {
+    type = "distinctInstance"
   }
 
-  stage {
-    name = "Deploy"
-
-    action {
-      name = "Deploy"
-      category = "Deploy"
-      owner = "AWS"
-      provider = "ElasticBeanstalk"
-      input_artifacts = ["build"]
-      version = "1"
-
-      configuration {
-        ApplicationName = "${aws_elastic_beanstalk_application.medusa.name}"
-        EnvironmentName = "${aws_elastic_beanstalk_environment.medusa.name}"
-      }
-    }
+  triggers = {
+    redeployment = timestamp()
   }
 
-}
-
-resource "aws_s3_bucket" "medusa_codepipeline" {
-  bucket = "medusa-codepipeline-wxnet-se"
-}
-
-resource "aws_s3_bucket_acl" "medusa_codepipeline" {
-  bucket = aws_s3_bucket.medusa_codepipeline.id
-  acl    = "private"
-}
-
-data "aws_iam_policy_document" "medusa_codepipeline_assume_role" {
-  statement {
-    effect = "Allow"
-
-    principals {
-      type        = "Service"
-      identifiers = ["codepipeline.amazonaws.com"]
-    }
-
-    actions = ["sts:AssumeRole"]
-  }
-}
-
-resource "aws_iam_role" "medusa_codepipeline" {
-  name               = "medusa-codepipeline-role"
-  assume_role_policy = data.aws_iam_policy_document.medusa_codepipeline_assume_role.json
-}
-
-data "aws_iam_policy_document" "medusa_codepipeline" {
-  statement {
-    effect = "Allow"
-
-    actions = [
-      "s3:GetObject",
-      "s3:GetObjectVersion",
-      "s3:GetBucketVersioning",
-      "s3:PutObjectAcl",
-      "s3:PutObject",
-    ]
-
-    resources = [
-      aws_s3_bucket.medusa_codepipeline.arn,
-      "${aws_s3_bucket.medusa_codepipeline.arn}/*"
-    ]
+  capacity_provider_strategy {
+    capacity_provider = aws_ecs_capacity_provider.medusa_ecs.name
+    weight            = 100
   }
 
-  statement {
-    effect    = "Allow"
-    actions   = ["codestar-connections:UseConnection"]
-    resources = [aws_codestarconnections_connection.medusa_github.arn]
+  load_balancer {
+    target_group_arn = aws_lb_target_group.medusa_ecs.arn
+    container_name   = "backend"
+    container_port   = 8080
   }
 
-  statement {
-    effect = "Allow"
-
-    actions = [
-      "codebuild:BatchGetBuilds",
-      "codebuild:StartBuild",
-    ]
-
-    resources = ["*"]
-  }
+  depends_on = [aws_autoscaling_group.medusa_ecs]
 }
 
-resource "aws_iam_role_policy" "codepipeline" {
-  name   = "medusa-codepipeline-policy"
-  role   = aws_iam_role.medusa_codepipeline.id
-  policy = data.aws_iam_policy_document.medusa_codepipeline.json
+resource "aws_db_instance" "medusa" {
+  identifier             = "medusa"
+  allocated_storage      = 10
+  db_name                = local.conf.postgresql.db_name
+  engine                 = "postgres"
+  engine_version         = "15.3"
+  instance_class         = "db.t3.micro"
+  username               = local.conf.postgresql.user
+  password               = local.conf.postgresql.password
+  skip_final_snapshot    = true
+  db_subnet_group_name   = aws_db_subnet_group.medusa_db_subnet_group.id
+  vpc_security_group_ids = [aws_security_group.medusa_db_sg.id]
 }
