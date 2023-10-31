@@ -1,7 +1,9 @@
-name: Deploy to ECR
+name: Build & Deploy backend
 on:
   push:
     branches: [ main ]
+    paths:
+    - 'backend/**'
 jobs:
   build:
     name: Build Image
