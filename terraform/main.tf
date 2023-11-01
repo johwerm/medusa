@@ -296,7 +296,7 @@ resource "aws_iam_instance_profile" "ecs_instance" {
 
 resource "aws_launch_template" "medusa_ecs" {
   name_prefix   = "ecs-template-"
-  image_id      = "ami-0df024d681444bc53"
+  image_id      = "ami-03b8fad9f2144de61" # Amazon ECS-optimized Amazon Linux 2023 AMI
   instance_type = "t3.micro"
 
   update_default_version = true
@@ -321,12 +321,13 @@ resource "aws_launch_template" "medusa_ecs" {
     }
   }
 
-  user_data = filebase64("${path.module}/ecs.sh")
+  user_data = base64encode(templatefile("${path.module}/ecs.sh.tftpl", { cluster_name = aws_ecs_cluster.medusa_ecs.name }))
+  #user_data = filebase64("${path.module}/ecs.sh")
 }
 
 resource "aws_autoscaling_group" "medusa_ecs" {
+  name                = "medusa-ecs-asg"
   vpc_zone_identifier = [for subnet in aws_subnet.medusa_public_subnet : subnet.id]
-  desired_capacity    = 2
   max_size            = 3
   min_size            = 1
 
@@ -343,7 +344,7 @@ resource "aws_autoscaling_group" "medusa_ecs" {
 }
 
 resource "aws_lb" "medusa_ecs" {
-  name               = "ecs-alb"
+  name               = "medusa-ecs-alb"
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.medusa_web_sg.id]
@@ -355,7 +356,7 @@ resource "aws_lb" "medusa_ecs" {
 }
 
 resource "aws_lb_target_group" "medusa_ecs" {
-  name        = "ecs-target-group"
+  name        = "medusa-ecs-target-group"
   port        = 80
   protocol    = "HTTP"
   target_type = "ip"
@@ -391,7 +392,7 @@ resource "aws_ecs_capacity_provider" "medusa_ecs" {
       maximum_scaling_step_size = 1000
       minimum_scaling_step_size = 1
       status                    = "ENABLED"
-      target_capacity           = 3
+      target_capacity           = 2
     }
   }
 }
@@ -415,6 +416,30 @@ resource "aws_ecr_repository" "medusa_backend" {
   image_scanning_configuration {
     scan_on_push = true
   }
+}
+
+resource "aws_ecr_lifecycle_policy" "medusa_backend" {
+  repository = aws_ecr_repository.medusa_backend.name
+
+  policy = <<EOF
+{
+    "rules": [
+        {
+            "rulePriority": 1,
+            "description": "Keep last 10 images",
+            "selection": {
+                "tagStatus": "tagged",
+                "tagPrefixList": ["v"],
+                "countType": "imageCountMoreThan",
+                "countNumber": 10
+            },
+            "action": {
+                "type": "expire"
+            }
+        }
+    ]
+}
+EOF
 }
 
 resource "random_password" "medusa_server_jwt_secret" {
@@ -490,7 +515,7 @@ resource "aws_ecs_task_definition" "medusa_ecs_backend" {
       name      = "backend"
       image     = "${aws_ecr_repository.medusa_backend.repository_url}:latest"
       cpu       = 256
-      memory    = 512
+      memory    = 256
       essential = true
       portMappings = [
         {
@@ -521,7 +546,7 @@ resource "aws_ecs_service" "medusa_ecs_backend" {
   }
 
   triggers = {
-    redeployment = timestamp()
+    redeployment = "${timestamp()}"
   }
 
   capacity_provider_strategy {
