@@ -256,20 +256,54 @@ resource "aws_db_subnet_group" "medusa_db_subnet_group" {
   subnet_ids  = [for subnet in aws_subnet.medusa_private_subnet : subnet.id]
 }
 
-resource "aws_key_pair" "medusa_ec2" {
+# resource "aws_key_pair" "medusa_ec2" {
+#   key_name   = "medusa-ec2"
+#   public_key = local.conf.ec2.public_key
+# }
+
+data "aws_key_pair" "medusa_ec2" {
   key_name   = "medusa-ec2"
-  public_key = local.conf.ec2.public_key
+}
+
+resource "aws_iam_role" "ecs_instance" {
+    name = "ecs-instance-role"
+    assume_role_policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Action": "sts:AssumeRole",
+      "Principal": {
+        "Service": "ec2.amazonaws.com"
+      },
+      "Effect": "Allow",
+      "Sid": ""
+    }
+  ]
+}
+EOF
+}
+
+resource "aws_iam_role_policy_attachment" "ecs_instance" {
+  role = aws_iam_role.ecs_instance.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role"
+}
+
+resource "aws_iam_instance_profile" "ecs_instance" {
+  name = "ecs-instance-profile"
+  role = aws_iam_role.ecs_instance.name
 }
 
 resource "aws_launch_template" "medusa_ecs" {
-  name_prefix   = "ecs-template"
-  image_id      = "ami-062c116e449466e7f"
+  name_prefix   = "ecs-template-"
+  image_id      = "ami-0df024d681444bc53"
   instance_type = "t3.micro"
 
-  key_name               = aws_key_pair.medusa_ec2.key_name
+  update_default_version = true
+  key_name               = data.aws_key_pair.medusa_ec2.key_name
   vpc_security_group_ids = [aws_security_group.medusa_web_sg.id]
   iam_instance_profile {
-    name = "ecsInstanceRole"
+    name = aws_iam_instance_profile.ecs_instance.name
   }
 
   block_device_mappings {
@@ -374,8 +408,13 @@ resource "aws_ecs_cluster_capacity_providers" "medusa_ecs" {
   }
 }
 
-data "aws_iam_role" "ecs_task_execution" {
-  name = "ecsTaskExecutionRole"
+resource "aws_ecr_repository" "medusa_backend" {
+  name                 = "medusa-backend"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
 }
 
 resource "random_password" "medusa_server_jwt_secret" {
@@ -388,40 +427,81 @@ resource "random_password" "medusa_server_cookie_secret" {
   special = false
 }
 
+resource "aws_db_instance" "medusa" {
+  identifier             = "medusa"
+  allocated_storage      = 10
+  db_name                = local.conf.postgresql.db_name
+  engine                 = "postgres"
+  engine_version         = "15.3"
+  instance_class         = "db.t3.micro"
+  username               = local.conf.postgresql.user
+  password               = local.conf.postgresql.password
+  skip_final_snapshot    = true
+  db_subnet_group_name   = aws_db_subnet_group.medusa_db_subnet_group.id
+  vpc_security_group_ids = [aws_security_group.medusa_db_sg.id]
+}
+
 locals {
   environment_vars = {
-    NPM_USE_PRODUCTION = false
+    NPM_USE_PRODUCTION = "false"
     JWT_SECRET = random_password.medusa_server_jwt_secret.result
     COOKIE_SECRET = random_password.medusa_server_cookie_secret.result
     DATABASE_URL = "postgres://${local.conf.postgresql.user}:${local.conf.postgresql.password}@${aws_db_instance.medusa.endpoint}/${local.conf.postgresql.db_name}"
   }
 }
 
+# ECS Task Execution Role
+resource "aws_iam_role" "ecs_task_execution" {
+  name = "ecs-task-execution-role"
+
+  assume_role_policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "",
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "ecs-tasks.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+EOF
+}
+
+resource "aws_iam_role_policy_attachment" "ecs_task_execution" {
+  role       = aws_iam_role.ecs_task_execution.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
 resource "aws_ecs_task_definition" "medusa_ecs_backend" {
- family             = "medusa-ecs-backend"
- network_mode       = "awsvpc"
- execution_role_arn = data.aws_iam_role.ecs_task_execution.arn
- cpu                = 256
- runtime_platform {
-   operating_system_family = "LINUX"
-   cpu_architecture        = "X86_64"
- }
- container_definitions = jsonencode([
-   {
-     name      = "dockergs"
-     image     = "public.ecr.aws/f9n5f1l7/dgs:latest"
-     cpu       = 256
-     memory    = 512
-     essential = true
-     portMappings = [
-       {
-         containerPort = 80
-         hostPort      = 80
-         protocol      = "tcp"
-       }
-     ]
-   }
- ])
+  family             = "medusa-ecs-backend"
+  network_mode       = "awsvpc"
+  execution_role_arn = aws_iam_role.ecs_task_execution.arn
+  cpu                = 256
+  runtime_platform {
+    operating_system_family = "LINUX"
+    cpu_architecture        = "X86_64"
+  }
+  container_definitions = jsonencode([
+    {
+      name      = "backend"
+      image     = "${aws_ecr_repository.medusa_backend.repository_url}:latest"
+      cpu       = 256
+      memory    = 512
+      essential = true
+      portMappings = [
+        {
+          containerPort = 80
+          hostPort      = 80
+          protocol      = "tcp"
+        }
+      ]
+      environment = [for k, v in local.environment_vars : {name = k, value = v}]
+    }
+  ])
 }
 
 resource "aws_ecs_service" "medusa_ecs_backend" {
@@ -452,22 +532,10 @@ resource "aws_ecs_service" "medusa_ecs_backend" {
   load_balancer {
     target_group_arn = aws_lb_target_group.medusa_ecs.arn
     container_name   = "backend"
-    container_port   = 8080
+    container_port   = 80
   }
 
   depends_on = [aws_autoscaling_group.medusa_ecs]
 }
 
-resource "aws_db_instance" "medusa" {
-  identifier             = "medusa"
-  allocated_storage      = 10
-  db_name                = local.conf.postgresql.db_name
-  engine                 = "postgres"
-  engine_version         = "15.3"
-  instance_class         = "db.t3.micro"
-  username               = local.conf.postgresql.user
-  password               = local.conf.postgresql.password
-  skip_final_snapshot    = true
-  db_subnet_group_name   = aws_db_subnet_group.medusa_db_subnet_group.id
-  vpc_security_group_ids = [aws_security_group.medusa_db_sg.id]
-}
+

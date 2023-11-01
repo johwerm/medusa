@@ -20,7 +20,7 @@
     "watch": "cross-env tsc --watch",
     "test": "cross-env jest",
     "seed": "cross-env medusa seed -f ./data/seed.json",
-    "start": "cross-env npm run build && medusa migrations run && medusa start -p 8080",
+    "start": "cross-env npm run build && medusa migrations run && medusa start -p 80",
     "dev": "cross-env npm run build:server && medusa develop"
   },
   "dependencies": {
