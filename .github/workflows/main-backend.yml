@@ -52,7 +52,7 @@ jobs:
       
     - name: Download task definition
       run: |
-        aws ecs describe-task-definition --task-definition medusa-ecs-backend --query taskDefinition > task-definition.json
+        aws ecs describe-task-definition --task-definition $ECR_SERVICE --query taskDefinition > task-definition.json
   
     - name: Update image in AWS ECS task definition
       id: task-def
