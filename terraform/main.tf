@@ -524,6 +524,15 @@ resource "aws_ecs_task_definition" "medusa_ecs_backend" {
         }
       ]
       environment = [for k, v in local.environment_vars : {name = k, value = v}]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-group = "medusa"
+          awslogs-region = var.aws_region
+          awslogs-create-group = "true"
+          awslogs-stream-prefix = "medusa"
+        }
+      }
     }
   ])
 }
