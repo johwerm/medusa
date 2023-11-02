@@ -46,8 +46,6 @@ COPY package*.json ./
 
 COPY medusa-start.sh .
 
-COPY .env .
-
 COPY medusa-config.js .
 
 RUN npm install -g @medusajs/medusa-cli
