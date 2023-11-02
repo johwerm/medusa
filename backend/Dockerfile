@@ -29,8 +29,7 @@ WORKDIR /app/medusa
 COPY . . 
 
 RUN rm -rf node_modules \
- && apt-get update \
- && apt-get install -y python \
+ && apk add --update --no-cache python \
  && npm install -g npm@latest \
  && npm install --loglevel=error \
  && npm run build
