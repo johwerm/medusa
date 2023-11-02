@@ -6,9 +6,9 @@ on:
     - 'backend/**'
   workflow_dispatch:
 env:
-  ECR_CLUSTER: medusa-ecs
-  ECR_SERVICE: medusa-ecs-backend
-  ECR_CONTAINER_NAME: backend
+  ECS_CLUSTER: medusa-ecs
+  ECS_SERVICE: medusa-ecs-backend
+  ECS_CONTAINER_NAME: backend
   ECR_REPOSITORY: ${{ vars.AWS_ECR_REGISTRY }}/medusa-backend
   IMAGE_TAG: ${{ github.sha }}
 jobs:
@@ -34,8 +34,8 @@ jobs:
       id: build-image
       working-directory: ./backend
       run: |
-        docker build -t $ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REPOSITORY:latest .
-        docker push $ECR_REPOSITORY --all-tags
+        docker build -t ${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }} -t ${{ env.ECR_REPOSITORY }}:latest .
+        docker push ${{ env.ECR_REPOSITORY }} --all-tags
 
   deploy-prod:
     name: Deploy to Production
@@ -52,26 +52,20 @@ jobs:
       
     - name: Download task definition
       run: |
-        aws ecs describe-task-definition --task-definition $ECR_SERVICE --query taskDefinition > task-definition.json
-        cat task-definition.json
+        aws ecs describe-task-definition --task-definition ${{ env.ECS_SERVICE }} --query taskDefinition > task-definition.json
   
     - name: Update image in AWS ECS task definition
       id: task-def
       uses: aws-actions/amazon-ecs-render-task-definition@v1
       with:
         task-definition: task-definition.json
-        container-name: backend
-        image: $ECR_REPOSITORY:$IMAGE_TAG
-
-    - name: Download task definition
-      run: |
-        echo "Test2"
-        cat task-definition.json
+        container-name: ${{ env.ECS_CONTAINER_NAME }}
+        image: "${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}"
 
     - name: Deploy AWS ECS task definition
       uses: aws-actions/amazon-ecs-deploy-task-definition@v1
       with:
         task-definition: ${{ steps.task-def.outputs.task-definition }}
-        service: $ECR_SERVICE
-        cluster: $ECR_CLUSTER
+        service: ${{ env.ECS_SERVICE }}
+        cluster: ${{ env.ECS_CLUSTER }}
         wait-for-service-stability: true
