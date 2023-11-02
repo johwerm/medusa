@@ -5,11 +5,9 @@ WORKDIR /app/medusa
 COPY . . 
 
 RUN rm -rf node_modules \
- && apk add --update --no-cache python \
  && npm install -g npm@latest \
  && npm install --loglevel=error \
  && npm run build
-
 
 FROM node:21-alpine
 
