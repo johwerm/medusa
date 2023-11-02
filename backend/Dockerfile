@@ -8,7 +8,7 @@ COPY . .
 
 ENV CERT_HOME=/usr/local/share/ca-certificates
 RUN mkdir -p ${CERT_HOME} \
- && wget https://s3.amazonaws.com/rds-downloads/rds-combined-ca-bundle.pem > ${CERT_HOME}/extra-ca.crt
+ && wget -O ${CERT_HOME}/extra-ca.crt https://s3.amazonaws.com/rds-downloads/rds-combined-ca-bundle.pem
 
 ENV NODE_EXTRA_CA_CERTS=${CERT_HOME}/extra-ca.crt
  
