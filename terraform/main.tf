@@ -293,11 +293,11 @@ resource "aws_iam_instance_profile" "ecs_instance" {
   name = "ecs-instance-profile"
   role = aws_iam_role.ecs_instance.name
 }
-
+#docker run -d -p 80:80 414252688381.dkr.ecr.eu-north-1.amazonaws.com/medusa-backend:latest
 resource "aws_launch_template" "medusa_ecs" {
   name_prefix   = "ecs-template-"
   image_id      = "ami-03b8fad9f2144de61" # Amazon ECS-optimized Amazon Linux 2023 AMI
-  instance_type = "t3.micro"
+  instance_type = "t3.small"
 
   update_default_version = true
   key_name               = data.aws_key_pair.medusa_ec2.key_name
@@ -463,7 +463,7 @@ resource "aws_db_instance" "medusa" {
   password               = local.conf.postgresql.password
   skip_final_snapshot    = true
   db_subnet_group_name   = aws_db_subnet_group.medusa_db_subnet_group.id
-  vpc_security_group_ids = [aws_security_group.medusa_db_sg.id]
+  vpc_security_group_ids = [aws_security_group.medusa_web_sg.id]
 }
 
 locals {
@@ -471,7 +471,7 @@ locals {
     NPM_USE_PRODUCTION = "false"
     JWT_SECRET = random_password.medusa_server_jwt_secret.result
     COOKIE_SECRET = random_password.medusa_server_cookie_secret.result
-    DATABASE_URL = "postgres://${local.conf.postgresql.user}:${local.conf.postgresql.password}@${aws_db_instance.medusa.endpoint}/${local.conf.postgresql.db_name}"
+    DATABASE_URL = "postgres://${local.conf.postgresql.user}:${local.conf.postgresql.password}@${aws_db_instance.medusa.endpoint}/${local.conf.postgresql.db_name}?sslmode=verify-full"
   }
 }
 
@@ -505,7 +505,6 @@ resource "aws_ecs_task_definition" "medusa_ecs_backend" {
   family             = "medusa-ecs-backend"
   network_mode       = "awsvpc"
   execution_role_arn = aws_iam_role.ecs_task_execution.arn
-  cpu                = 256
   runtime_platform {
     operating_system_family = "LINUX"
     cpu_architecture        = "X86_64"
@@ -514,8 +513,8 @@ resource "aws_ecs_task_definition" "medusa_ecs_backend" {
     {
       name      = "backend"
       image     = "${aws_ecr_repository.medusa_backend.repository_url}:latest"
-      cpu       = 256
-      memory    = 256
+      cpu       = 512
+      memory    = 400
       essential = true
       portMappings = [
         {
@@ -546,7 +545,7 @@ resource "aws_ecs_service" "medusa_ecs_backend" {
   }
 
   triggers = {
-    redeployment = "${timestamp()}"
+    redeployment = true
   }
 
   capacity_provider_strategy {
