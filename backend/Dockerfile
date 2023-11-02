@@ -19,11 +19,12 @@ ENV NODE_EXTRA_CA_CERTS=${CERT_HOME}/extra-ca.crt
 
 WORKDIR /app/medusa
 
-RUN mkdir dist
+COPY medusa-start.sh .
+
+RUN mkdir dist \
+ && chmod +x medusa-start.sh
 
 COPY package*.json ./ 
-
-COPY medusa-start.sh .
 
 COPY medusa-config.js .
 

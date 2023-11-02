@@ -9,7 +9,7 @@ resource "aws_db_instance" "medusa_backend" {
   password               = local.conf.postgresql.password
   skip_final_snapshot    = true
   db_subnet_group_name   = aws_db_subnet_group.medusa_db_subnet_group.id
-  vpc_security_group_ids = [aws_security_group.medusa_web_sg.id]
+  vpc_security_group_ids = [aws_security_group.medusa_db_sg.id]
 }
 
 resource "aws_ecr_repository" "medusa_backend" {
