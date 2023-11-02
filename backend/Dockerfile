@@ -13,9 +13,9 @@ FROM node:21-alpine
 
 ENV CERT_HOME=/usr/local/share/ca-certificates
 RUN mkdir -p ${CERT_HOME} \
- && wget -O ${CERT_HOME}/extra-ca.crt https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
- && npm config set cafile ${CERT_HOME}/extra-ca.crt
-#ENV NODE_EXTRA_CA_CERTS=${CERT_HOME}/extra-ca.crt
+ && wget -O ${CERT_HOME}/extra-ca.crt https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+# && npm config set cafile ${CERT_HOME}/extra-ca.crt
+ENV NODE_EXTRA_CA_CERTS=${CERT_HOME}/extra-ca.crt
 
 WORKDIR /app/medusa
 
