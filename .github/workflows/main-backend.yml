@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 env:
   ECS_CLUSTER: medusa-ecs-cluster
-  ECS_SERVICE: medusa-ecs-backend
+  ECS_SERVICE: medusa-backend-svc
   ECS_CONTAINER_NAME: backend
   ECR_REPOSITORY: ${{ vars.AWS_ECR_REGISTRY }}/medusa-backend
   IMAGE_TAG: ${{ github.sha }}
