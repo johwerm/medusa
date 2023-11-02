@@ -53,6 +53,7 @@ jobs:
     - name: Download task definition
       run: |
         aws ecs describe-task-definition --task-definition $ECR_SERVICE --query taskDefinition > task-definition.json
+        cat task-definition.json
   
     - name: Update image in AWS ECS task definition
       id: task-def
@@ -61,6 +62,11 @@ jobs:
         task-definition: task-definition.json
         container-name: backend
         image: $ECR_REPOSITORY:$IMAGE_TAG
+
+    - name: Download task definition
+      run: |
+        echo "Test2"
+        cat task-definition.json
 
     - name: Deploy AWS ECS task definition
       uses: aws-actions/amazon-ecs-deploy-task-definition@v1
