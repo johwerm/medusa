@@ -21,3 +21,41 @@ ENV NODE_EXTRA_CA_CERTS=${CERT_HOME}/extra-ca.crt
 EXPOSE 80
 
 ENTRYPOINT ["npm", "run", "start"]
+
+FROM node:21-alpine as builder
+
+WORKDIR /app/medusa
+
+COPY . . 
+
+RUN rm -rf node_modules \
+ && apt-get update \
+ && apt-get install -y python \
+ && npm install -g npm@latest \
+ && npm install --loglevel=error \
+ && npm run build
+
+
+FROM node:21-alpine
+
+WORKDIR /app/medusa
+
+RUN mkdir dist
+
+COPY package*.json ./ 
+
+COPY medusa-start.sh .
+
+COPY .env .
+
+COPY medusa-config.js .
+
+RUN npm install -g @medusajs/medusa-cli
+
+RUN npm i --only=production
+
+COPY --from=builder /app/medusa/dist ./dist
+
+EXPOSE 9000
+
+ENTRYPOINT ["./medusa-start.sh", "start"]

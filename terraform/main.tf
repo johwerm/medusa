@@ -294,7 +294,7 @@ resource "aws_iam_instance_profile" "ecs_instance" {
   role = aws_iam_role.ecs_instance.name
 }
 #docker run -d -p 80:80 414252688381.dkr.ecr.eu-north-1.amazonaws.com/medusa-backend:latest
-resource "aws_launch_template" "medusa_ecs" {
+resource "aws_launch_template" "medusa_ecs_cluster" {
   name_prefix   = "ecs-template-"
   image_id      = "ami-03b8fad9f2144de61" # Amazon ECS-optimized Amazon Linux 2023 AMI
   instance_type = "t3.small"
@@ -321,18 +321,18 @@ resource "aws_launch_template" "medusa_ecs" {
     }
   }
 
-  user_data = base64encode(templatefile("${path.module}/ecs.sh.tftpl", { cluster_name = aws_ecs_cluster.medusa_ecs.name }))
+  user_data = base64encode(templatefile("${path.module}/ecs.sh.tftpl", { cluster_name = aws_ecs_cluster.medusa.name }))
   #user_data = filebase64("${path.module}/ecs.sh")
 }
 
-resource "aws_autoscaling_group" "medusa_ecs" {
-  name                = "medusa-ecs-asg"
+resource "aws_autoscaling_group" "medusa_ecs_cluster" {
+  name                = "medusa-ecs-cluster-asg"
   vpc_zone_identifier = [for subnet in aws_subnet.medusa_public_subnet : subnet.id]
-  max_size            = 3
+  max_size            = 2
   min_size            = 1
 
   launch_template {
-    id      = aws_launch_template.medusa_ecs.id
+    id      = aws_launch_template.medusa_ecs_cluster.id
     version = "$Latest"
   }
 
@@ -343,50 +343,15 @@ resource "aws_autoscaling_group" "medusa_ecs" {
   }
 }
 
-resource "aws_lb" "medusa_ecs" {
-  name               = "medusa-ecs-alb"
-  internal           = false
-  load_balancer_type = "application"
-  security_groups    = [aws_security_group.medusa_web_sg.id]
-  subnets            = [for subnet in aws_subnet.medusa_public_subnet : subnet.id]
-
-  tags = {
-    Name = "ecs-alb"
-  }
-}
-
-resource "aws_lb_target_group" "medusa_ecs" {
-  name        = "medusa-ecs-target-group"
-  port        = 80
-  protocol    = "HTTP"
-  target_type = "ip"
-  vpc_id      = aws_vpc.medusa.id
-
-  health_check {
-    path = "/"
-  }
-}
-
-resource "aws_lb_listener" "medusa_ecs" {
-  load_balancer_arn = aws_lb.medusa_ecs.arn
-  port              = 80
-  protocol          = "HTTP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.medusa_ecs.arn
-  }
-}
-
-resource "aws_ecs_cluster" "medusa_ecs" {
+resource "aws_ecs_cluster" "medusa" {
   name = "medusa-ecs-cluster"
 }
 
-resource "aws_ecs_capacity_provider" "medusa_ecs" {
-  name = "medusa-ecs-capacity-provider"
+resource "aws_ecs_capacity_provider" "medusa_ecs_cluster" {
+  name = "medusa-ecs-cluster-capacity-provider"
 
   auto_scaling_group_provider {
-    auto_scaling_group_arn = aws_autoscaling_group.medusa_ecs.arn
+    auto_scaling_group_arn = aws_autoscaling_group.medusa_ecs_cluster.arn
 
     managed_scaling {
       maximum_scaling_step_size = 1000
@@ -397,15 +362,15 @@ resource "aws_ecs_capacity_provider" "medusa_ecs" {
   }
 }
 
-resource "aws_ecs_cluster_capacity_providers" "medusa_ecs" {
-  cluster_name = aws_ecs_cluster.medusa_ecs.name
+resource "aws_ecs_cluster_capacity_providers" "medusa_ecs_cluster" {
+  cluster_name = aws_ecs_cluster.medusa.name
 
-  capacity_providers = [aws_ecs_capacity_provider.medusa_ecs.name]
+  capacity_providers = [aws_ecs_capacity_provider.medusa_ecs_cluster.name]
 
   default_capacity_provider_strategy {
     base              = 1
     weight            = 100
-    capacity_provider = aws_ecs_capacity_provider.medusa_ecs.name
+    capacity_provider = aws_ecs_capacity_provider.medusa_ecs_cluster.name
   }
 }
 
@@ -452,7 +417,7 @@ resource "random_password" "medusa_server_cookie_secret" {
   special = false
 }
 
-resource "aws_db_instance" "medusa" {
+resource "aws_db_instance" "medusa_backend" {
   identifier             = "medusa"
   allocated_storage      = 10
   db_name                = local.conf.postgresql.db_name
@@ -471,7 +436,7 @@ locals {
     NPM_USE_PRODUCTION = "false"
     JWT_SECRET = random_password.medusa_server_jwt_secret.result
     COOKIE_SECRET = random_password.medusa_server_cookie_secret.result
-    DATABASE_URL = "postgres://${local.conf.postgresql.user}:${local.conf.postgresql.password}@${aws_db_instance.medusa.endpoint}/${local.conf.postgresql.db_name}?sslmode=verify-full"
+    DATABASE_URL = "postgres://${local.conf.postgresql.user}:${local.conf.postgresql.password}@${aws_db_instance.medusa_backend.endpoint}/${local.conf.postgresql.db_name}?sslmode=verify-full"
   }
 }
 
@@ -501,8 +466,19 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-resource "aws_ecs_task_definition" "medusa_ecs_backend" {
-  family             = "medusa-ecs-backend"
+resource "aws_cloudwatch_log_group" "medusa" {
+  name              = "medusa-log-group"
+  skip_destroy      = false
+  retention_in_days = 30
+
+  tags = {
+    Environment = "production"
+    Application = "medusa"
+  }
+}
+
+resource "aws_ecs_task_definition" "medusa_backend" {
+  family             = "medusa-backend-td"
   network_mode       = "awsvpc"
   execution_role_arn = aws_iam_role.ecs_task_execution.arn
   runtime_platform {
@@ -513,23 +489,29 @@ resource "aws_ecs_task_definition" "medusa_ecs_backend" {
     {
       name      = "backend"
       image     = "${aws_ecr_repository.medusa_backend.repository_url}:latest"
-      cpu       = 512
-      memory    = 400
+      cpu       = 500
+      memory    = 900
       essential = true
       portMappings = [
         {
-          containerPort = 80
-          hostPort      = 80
+          containerPort = 9000
+          hostPort      = 9000
           protocol      = "tcp"
         }
       ]
       environment = [for k, v in local.environment_vars : {name = k, value = v}]
+      healthCheck = {
+        command: [ "CMD-SHELL", "wget http://localhost/health || exit 1" ]
+        interval: 15
+        retries: 3
+        startPeriod: 120
+        timeout: 5
+      }
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          awslogs-group = "medusa"
+          awslogs-group = aws_cloudwatch_log_group.medusa.name
           awslogs-region = var.aws_region
-          awslogs-create-group = "true"
           awslogs-stream-prefix = "medusa"
         }
       }
@@ -537,11 +519,13 @@ resource "aws_ecs_task_definition" "medusa_ecs_backend" {
   ])
 }
 
-resource "aws_ecs_service" "medusa_ecs_backend" {
-  name            = "medusa-ecs-backend"
-  cluster         = aws_ecs_cluster.medusa_ecs.id
-  task_definition = aws_ecs_task_definition.medusa_ecs_backend.arn
-  desired_count   = 2
+resource "aws_ecs_service" "medusa_backend" {
+  name                               = "medusa-backend-svc"
+  cluster                            = aws_ecs_cluster.medusa.id
+  task_definition                    = aws_ecs_task_definition.medusa_backend.arn
+  desired_count                      = 2
+  deployment_minimum_healthy_percent = 100
+  deployment_maximum_percent         = 200
 
   network_configuration {
     subnets         = [for subnet in aws_subnet.medusa_public_subnet : subnet.id]
@@ -558,17 +542,57 @@ resource "aws_ecs_service" "medusa_ecs_backend" {
   }
 
   capacity_provider_strategy {
-    capacity_provider = aws_ecs_capacity_provider.medusa_ecs.name
+    capacity_provider = aws_ecs_capacity_provider.medusa_ecs_cluster.name
     weight            = 100
   }
 
   load_balancer {
-    target_group_arn = aws_lb_target_group.medusa_ecs.arn
+    target_group_arn = aws_lb_target_group.medusa_backend.arn
     container_name   = "backend"
-    container_port   = 80
+    container_port   = 9000
   }
 
-  depends_on = [aws_autoscaling_group.medusa_ecs]
+  depends_on = [aws_autoscaling_group.medusa_ecs_cluster]
+
+  lifecycle {
+    ignore_changes = [desired_count]
+  }
 }
 
+resource "aws_lb" "medusa_backend" {
+  name               = "medusa-backend-alb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.medusa_web_sg.id]
+  subnets            = [for subnet in aws_subnet.medusa_public_subnet : subnet.id]
 
+  tags = {
+    Name = "medusa-backend-alb"
+  }
+}
+
+resource "aws_lb_target_group" "medusa_backend" {
+  name        = "medusa-backend-target-group"
+  port        = 80
+  protocol    = "HTTP"
+  target_type = "ip"
+  vpc_id      = aws_vpc.medusa.id
+
+  health_check {
+    path                = "/health"
+    interval            = 30
+    healthy_threshold   = 2
+    unhealthy_threshold = 4
+  }
+}
+
+resource "aws_lb_listener" "medusa_backend" {
+  load_balancer_arn = aws_lb.medusa_backend.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.medusa_backend.arn
+  }
+}
