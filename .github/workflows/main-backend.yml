@@ -59,7 +59,7 @@ jobs:
       uses: aws-actions/amazon-ecs-render-task-definition@v1
       with:
         task-definition: task-definition.json
-        container-name: $ECR_CONTAINER_NAME
+        container-name: backend
         image: $ECR_REPOSITORY:$IMAGE_TAG
 
     - name: Deploy AWS ECS task definition
