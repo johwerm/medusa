@@ -19,7 +19,7 @@ ENV NODE_EXTRA_CA_CERTS=${CERT_HOME}/extra-ca.crt
 
 WORKDIR /app/medusa
 
-COPY medusa-start.sh .
+ADD medusa-start.sh .
 
 RUN mkdir dist \
  && chmod +x medusa-start.sh
