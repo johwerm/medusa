@@ -101,7 +101,7 @@ resource "random_password" "medusa_backend_cookie_secret" {
 }
 
 locals {
-  environment_vars = {
+  backend_environment_vars = {
     NPM_USE_PRODUCTION = "true"
     JWT_SECRET = random_password.medusa_backend_jwt_secret.result
     COOKIE_SECRET = random_password.medusa_backend_cookie_secret.result
@@ -133,7 +133,7 @@ resource "aws_ecs_task_definition" "medusa_backend" {
           protocol      = "tcp"
         }
       ]
-      environment = [for k, v in local.environment_vars : {name = k, value = v}]
+      environment = [for k, v in local.backend_environment_vars : {name = k, value = v}]
       # healthCheck = {
       #   command: [ "CMD-SHELL", "wget http://localhost:9000/health || exit 1" ]
       #   interval: 30

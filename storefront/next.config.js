@@ -18,6 +18,7 @@ module.exports = withStoreConfig({
       "medusa-server-testing.s3.amazonaws.com",
     ],
   },
+  output: 'standalone'
 })
 
 console.log("next.config.js", JSON.stringify(module.exports, null, 2))
