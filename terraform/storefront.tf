@@ -54,8 +54,8 @@
 #       essential = true
 #       portMappings = [
 #         {
-#           containerPort = 80
-#           hostPort      = 80
+#           containerPort = 8000
+#           hostPort      = 8000
 #           protocol      = "tcp"
 #         }
 #       ]
@@ -108,7 +108,7 @@
 #   load_balancer {
 #     target_group_arn = aws_lb_target_group.medusa_storefront.arn
 #     container_name   = "storefront"
-#     container_port   = 80
+#     container_port   = 8000
 #   }
 
 #   depends_on = [aws_autoscaling_group.medusa_ecs_cluster]
