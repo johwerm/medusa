@@ -1,3 +1,4 @@
+### Postgres ###
 resource "aws_db_instance" "medusa_backend" {
   identifier             = "medusa"
   allocated_storage      = 10
@@ -12,6 +13,84 @@ resource "aws_db_instance" "medusa_backend" {
   vpc_security_group_ids = [aws_security_group.medusa_db_sg.id]
 }
 
+### Redis ###
+resource "aws_elasticache_subnet_group" "medusa_backend" {
+  name       = "medusa-elasticcache-sg"
+  subnet_ids = [for subnet in aws_subnet.medusa_private_subnet : subnet.id]
+}
+
+# resource "aws_elasticache_cluster" "medusa_backend" {
+#   cluster_id           = "medusa-backend-redis-cluster"
+#   engine               = "redis"
+#   port                 = 6379
+
+#   node_type            = "cache.t3.micro"
+#   parameter_group_name = "default.redis7.cluster.on"
+ 
+#   snapshot_retention_limit = 5
+#   snapshot_window          = "00:00-05:00"
+ 
+#   subnet_group_name  = aws_elasticache_subnet_group.medusa_backend.name
+#   security_group_ids = 
+ 
+#   automatic_failover_enabled = true
+#   apply_immediately          = true
+ 
+#   replicas_per_node_group    = 1
+#   num_node_groups            = 2
+
+#   log_delivery_configuration {
+#     destination      = aws_cloudwatch_log_group.medusa.name
+#     destination_type = "cloudwatch-logs"
+#     log_format       = "text"
+#     log_type         = "slow-log"
+#   }
+# }
+
+resource "aws_elasticache_replication_group" "medusa_backend_redis_cluster" {
+  replication_group_id       = "medusa-backend-redis-cluster"
+  description                = "Redis Cluster"
+  node_type                  = "cache.t3.micro"
+
+  engine                     = "redis"
+  port                       = 6379
+  parameter_group_name       = "default.redis7.cluster.on"
+
+  automatic_failover_enabled = true
+  apply_immediately          = true
+  
+  num_node_groups            = 2
+  replicas_per_node_group    = 1
+
+  subnet_group_name          = aws_elasticache_subnet_group.medusa_backend.name
+  security_group_ids         = [aws_security_group.medusa_db_sg.id]
+
+  log_delivery_configuration {
+    destination      = aws_cloudwatch_log_group.medusa.name
+    destination_type = "cloudwatch-logs"
+    log_format       = "text"
+    log_type         = "slow-log"
+  }
+}
+
+resource "random_password" "medusa_backend_redis_password" {
+  length = 40
+  special = false
+}
+
+resource "aws_elasticache_user" "medusa_backend_redis_user" {
+  user_id       = "medusa-backend-redis"
+  user_name     = "medusa-backend-redis"
+  access_string = "on ~* +@all"
+  engine        = "REDIS"
+
+  authentication_mode {
+    type      = "password"
+    passwords = [random_password.medusa_backend_redis_password.result]
+  }
+}
+
+### Repository ###
 resource "aws_ecr_repository" "medusa_backend" {
   name                 = "medusa-backend"
   image_tag_mutability = "MUTABLE"
@@ -45,22 +124,24 @@ resource "aws_ecr_lifecycle_policy" "medusa_backend" {
 EOF
 }
 
-resource "random_password" "medusa_server_jwt_secret" {
+### App ###
+resource "random_password" "medusa_backend_jwt_secret" {
   length = 40
   special = false
 }
 
-resource "random_password" "medusa_server_cookie_secret" {
+resource "random_password" "medusa_backend_cookie_secret" {
   length = 40
   special = false
 }
 
 locals {
   environment_vars = {
-    NPM_USE_PRODUCTION = "false"
-    JWT_SECRET = random_password.medusa_server_jwt_secret.result
-    COOKIE_SECRET = random_password.medusa_server_cookie_secret.result
+    NPM_USE_PRODUCTION = "true"
+    JWT_SECRET = random_password.medusa_backend_jwt_secret.result
+    COOKIE_SECRET = random_password.medusa_backend_cookie_secret.result
     DATABASE_URL = "postgres://${local.conf.postgresql.user}:${local.conf.postgresql.password}@${aws_db_instance.medusa_backend.endpoint}/${local.conf.postgresql.db_name}?sslmode=verify-full"
+    REDIS_URL = "redis://${aws_elasticache_user.medusa_backend_redis_user.user_name}:${random_password.medusa_backend_redis_password.result}@${elasticache_replication_group.medusa_backend_redis_cluster.configuration_endpoint_address}:${elasticache_replication_group.medusa_backend_redis_cluster.port}"
   }
 }
 
@@ -76,8 +157,8 @@ resource "aws_ecs_task_definition" "medusa_backend" {
     {
       name      = "backend"
       image     = "${aws_ecr_repository.medusa_backend.repository_url}:latest"
-      cpu       = 500
-      memory    = 900
+      cpu       = 512
+      memory    = 1024
       essential = true
       portMappings = [
         {
@@ -89,7 +170,7 @@ resource "aws_ecs_task_definition" "medusa_backend" {
       environment = [for k, v in local.environment_vars : {name = k, value = v}]
       healthCheck = {
         command: [ "CMD-SHELL", "wget http://localhost:9000/health || exit 1" ]
-        interval: 15
+        interval: 30
         retries: 3
         startPeriod: 120
         timeout: 5

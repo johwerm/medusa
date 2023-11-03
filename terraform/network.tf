@@ -168,19 +168,18 @@ resource "aws_security_group" "medusa_db_sg" {
   description = "Security group for medusa databases"
   vpc_id      = aws_vpc.medusa.id
 
-  // The third requirement was "RDS should be on a private subnet and 	
-  // inaccessible via the internet." To accomplish that, we will 
-  // not add any inbound or outbound rules for outside traffic.
-  
-  // The fourth and finally requirement was "Only the EC2 instances 
-  // should be able to communicate with RDS." So we will create an
-  // inbound rule that allows traffic from the EC2 security group
-  // through TCP port 3306, which is the port that MySQL 
-  // communicates through
   ingress {
     description     = "Allow PostgreSQL traffic from only the web sg"
     from_port       = "5432"
     to_port         = "5432"
+    protocol        = "tcp"
+    security_groups = [aws_security_group.medusa_web_sg.id]
+  }
+
+  ingress {
+    description     = "Allow Redis traffic from only the web sg"
+    from_port       = "6379"
+    to_port         = "6379"
     protocol        = "tcp"
     security_groups = [aws_security_group.medusa_web_sg.id]
   }

@@ -28,9 +28,8 @@ COPY package*.json ./
 
 COPY medusa-config.js .
 
-RUN npm install -g @medusajs/medusa-cli
-
-RUN npm i --omit=dev
+RUN npm install -g @medusajs/medusa-cli \
+ && npm i --omit=dev
 
 COPY --from=builder /app/medusa/dist ./dist
 
