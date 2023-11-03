@@ -36,4 +36,4 @@ COPY --from=builder /app/medusa/dist ./dist
 
 EXPOSE 9000
 
-ENTRYPOINT ["./medusa-start.sh", "start"]
+ENTRYPOINT ["/app/medusa/medusa-start.sh", "start"]
