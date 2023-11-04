@@ -34,6 +34,10 @@ EOF
 locals {
   storefront_environment_vars = {
     NPM_USE_PRODUCTION = "true"
+    NEXT_PUBLIC_MEDUSA_BACKEND_URL = "http://localhost:9000"
+    NEXT_PUBLIC_BASE_URL = "http://localhost:8000"
+    REVALIDATE_SECRET = supersecret
+    #POSTGRES_URL = "postgres://postgres:postgres@localhost:5432/medusa"
   }
 }
 
