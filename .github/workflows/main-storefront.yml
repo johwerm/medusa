@@ -1,4 +1,4 @@
-name: Build & Deploy storefront
+name: Build & Deploy NextJS Storefront
 on:
   push:
     branches: [ main ]
