@@ -1,4 +1,4 @@
-name: Build & Deploy backend
+name: Build & Deploy Medusa Backend
 on:
   push:
     branches: [ main ]
